@@ -1,0 +1,72 @@
+<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>SAFEYRA - Land Acquisition Early Warning</title>
+<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.css">
+<script src="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.js"></script>
+<script src="https://cdn.plot.ly/plotly-2.35.2.min.js"></script>
+<style>
+:root{--bg:#f3f5f9;--card:#fff;--ink:#14213d;--mut:#64748b;--hi:#c62828;--md:#ef8f00;--lo:#2e7d32;--pri:#1a3a6b}
+*{box-sizing:border-box}body{margin:0;font:14px system-ui,sans-serif;background:var(--bg);color:var(--ink)}
+header{background:var(--pri);color:#fff;padding:12px 24px;display:flex;justify-content:space-between;align-items:center}
+.demo{background:#ffd54f;color:#000;padding:2px 10px;border-radius:12px;font-size:12px;font-weight:600}
+main{padding:20px 24px;max-width:1400px;margin:auto}.grid{display:grid;gap:16px}.k{grid-template-columns:repeat(5,1fr)}.two{grid-template-columns:1fr 1fr}
+.card{background:var(--card);border-radius:8px;padding:16px;box-shadow:0 1px 3px #0002}.kpi b{font-size:28px;display:block}.mut{color:var(--mut);font-size:12px}
+table{width:100%;border-collapse:collapse}th,td{text-align:left;padding:7px;border-bottom:1px solid #e5e9f0}tr.r{cursor:pointer}tr.r:hover{background:#eef3fb}
+.pill{padding:2px 9px;border-radius:10px;color:#fff;font-size:12px}.High{background:var(--hi)}.Medium{background:var(--md)}.Low{background:var(--lo)}
+button{background:var(--pri);color:#fff;border:0;border-radius:6px;padding:8px 14px;cursor:pointer}button.g{background:#e2e8f0;color:var(--ink)}
+#map{height:320px;border-radius:6px}.life{display:flex;gap:6px;margin:8px 0}.st{flex:1;padding:8px 4px;text-align:center;border-radius:6px;background:#e2e8f0;font-size:12px}.st.done{background:#c8e6c9}.st.cur{background:var(--md);color:#fff;font-weight:700}
+.big{font-size:56px;font-weight:700}.hide{display:none}.al{padding:8px;border-left:4px solid var(--hi);background:#fdecea;margin:6px 0;cursor:pointer}
+input[type=range]{width:100%}#login{max-width:340px;margin:12vh auto}select{width:100%;padding:8px;margin:10px 0}
+@media(max-width:900px){.k,.two{grid-template-columns:1fr 1fr}}
+</style></head><body>
+<header><b>SAFEYRA &nbsp;|&nbsp; Land Acquisition Early Warning (SIH26017)</b><span><span class="demo">DEMO MODE - synthetic data</span> <span id="who"></span></span></header>
+<main>
+<div id="login" class="card"><h3>Sign in (prototype roles)</h3><p class="mut">Prototype role selection only - no real authentication.</p>
+<select id="role"><option>Administrator</option><option>Project Officer</option><option>Analyst</option></select><button onclick="enter()">Enter dashboard</button></div>
+<div id="err" class="card hide" style="border-left:4px solid var(--hi)"></div>
+<div id="dash" class="hide">
+<div class="grid k" id="kpis"></div><br>
+<div class="grid two"><div class="card"><b>Risk distribution</b> <span class="mut">(click a slice to filter)</span><div id="donut"></div></div>
+<div class="card"><b>GIS view</b><div id="map"></div></div></div><br>
+<div class="grid two"><div class="card"><b>Alerts</b><div id="alerts"></div></div>
+<div class="card"><b>Model info</b><div id="minfo" class="mut"></div></div></div><br>
+<div class="card"><b>Projects</b> <button class="g" onclick="filt=null;draw()">Clear filter</button><table id="tbl"></table></div></div>
+<div id="det" class="hide"><button class="g" onclick="back()">&larr; Back</button><div id="detbody"></div></div>
+</main>
+<script>
+let P=[],filt=null,map,layer,COL={High:'#c62828',Medium:'#ef8f00',Low:'#2e7d32'};
+const ST=["Notification","Land/Process","Award","Compensation","Possession","R&R/Closure"];
+const LBL={stage_days:"Stage duration",comp_progress:"Compensation progress",pending_approvals:"Pending approvals",legal_disputes:"Legal disputes",rr_progress:"R&R progress",doc_gap:"Documentation gap",stage:"Lifecycle stage"};
+const $=id=>document.getElementById(id),pct=x=>Math.round(x*100)+'%';
+const arrow={Rising:'↑ Rising',Falling:'↓ Falling',Stable:'→ Stable'};
+async function api(u,o){try{const r=await fetch(u,o);if(!r.ok)throw 0;return await r.json()}catch(e){$('err').textContent='Prediction service unavailable. Please verify the backend connection.';$('err').classList.remove('hide');throw e}}
+async function enter(){$('who').textContent=$('role').value;$('login').classList.add('hide');
+ P=await api('/api/projects');$('dash').classList.remove('hide');
+ const h=await api('/api/health');$('minfo').innerHTML=`Model: ${h.metrics.model}<br>Explainer: ${h.metrics.explainer}<br>Split: ${h.metrics.split}<br>Test AUC (model / logreg): ${h.metrics.test_auc_model} / ${h.metrics.test_auc_logreg}<br><b>${h.metrics.data}</b>`;
+ map=L.map('map').setView([30.3,79],7);L.tileLayer('https://tile.openstreetmap.org/{z}/{x}/{y}.png',{attribution:'© OpenStreetMap'}).addTo(map);layer=L.layerGroup().addTo(map);
+ const a=await api('/api/alerts');$('alerts').innerHTML=a.slice(0,6).map(x=>`<div class="al" onclick="open_('${x.id}')"><b>${x.type}</b> ${x.msg}</div>`).join('')||'None';draw()}
+function draw(){const v=filt?P.filter(p=>p.category==filt):P,c=k=>P.filter(p=>p.category==k).length;
+ $('kpis').innerHTML=[['Total projects',P.length],['High risk',c('High')],['Medium risk',c('Medium')],['Low risk',c('Low')],['Average risk',pct(P.reduce((s,p)=>s+p.risk,0)/P.length)]].map(x=>`<div class="card kpi"><span class="mut">${x[0]}</span><b>${x[1]}</b></div>`).join('');
+ Plotly.newPlot('donut',[{type:'pie',hole:.55,labels:['High','Medium','Low'],values:['High','Medium','Low'].map(c),marker:{colors:Object.values(COL)}}],{margin:{t:5,b:5},height:280},{displayModeBar:false}).then(g=>g.on('plotly_click',e=>{filt=e.points[0].label;draw()}));
+ layer.clearLayers();v.forEach(p=>L.circleMarker([p.lat,p.lon],{radius:7,color:COL[p.category],fillOpacity:.8}).addTo(layer).bindPopup(`<b>${p.id}</b><br>${p.stage_name} | ${p.district}<br>Risk ${pct(p.risk)} | ${p.bottleneck}<br><a href="#" onclick="open_('${p.id}');return false">Open</a>`));
+ $('tbl').innerHTML='<tr><th>Project<th>State<th>District<th>Stage<th>Risk<th>Trend<th>Bottleneck</tr>'+[...v].sort((a,b)=>b.risk-a.risk).slice(0,40).map(p=>`<tr class="r" onclick="open_('${p.id}')"><td>${p.id}<td>${p.state}<td>${p.district}<td>${p.stage_name}<td><span class="pill ${p.category}">${pct(p.risk)}</span><td>${arrow[p.trend]}<td>${p.bottleneck}</tr>`).join('')}
+function back(){$('det').classList.add('hide');$('dash').classList.remove('hide');map.invalidateSize()}
+let cur;async function open_(id){cur=await api('/api/projects/'+id);const p=cur,f=p.features,d=p.detail;
+ $('dash').classList.add('hide');$('det').classList.remove('hide');
+ $('detbody').innerHTML=`<div class="grid two" style="margin-top:12px"><div class="card"><h3>${p.id} <span class="mut">${p.project_type} | ${p.district}, ${p.state}</span></h3>
+ <p class="mut">Land ${p.land_area_ha} ha | ${p.families} families (synthetic)</p><div class="big" style="color:${COL[d.category]}">${pct(d.probability)}</div><b>${d.category.toUpperCase()} RISK</b><div class="mut">Model-estimated probability of significant delay</div>
+ <div class="life">${ST.map((s,i)=>`<div class="st ${i<f.stage?'done':i==f.stage?'cur':''}">${i<f.stage?'✓':i==f.stage?'⚠':'○'} ${s}</div>`).join('')}</div>
+ <div class="card" style="background:#fff8e1"><b>Likely next bottleneck (model-derived): ${d.likely_bottleneck}</b><div class="mut">${d.bottleneck_note}</div></div></div>
+ <div class="card"><b>Risk trajectory</b> — ${arrow[p.trend].toUpperCase()}<div id="tr"></div></div></div><br>
+ <div class="grid two"><div class="card"><b>Why is this project at risk?</b><div class="mut">Red raises predicted risk; green lowers it</div><div id="shap"></div></div>
+ <div class="card"><b>What-if simulator</b> <span class="mut">(Model-based scenario analysis)</span><div id="sl"></div><button onclick="sim()">SIMULATE</button><div id="sr" style="margin-top:10px"></div></div></div><br>
+ <div class="card"><b>Possible preventive actions</b> <span class="mut">(decision support only)</span><ul id="rec"></ul></div>`;
+ Plotly.newPlot('tr',[{x:p.trajectory.map(t=>t.date),y:p.trajectory.map(t=>t.risk*100),mode:'lines+markers',line:{color:COL[d.category]}}],{margin:{t:10,l:40,b:30},height:240,yaxis:{title:'Risk %',range:[0,100]}},{displayModeBar:false});
+ const e=[...d.drivers].reverse();Plotly.newPlot('shap',[{type:'bar',orientation:'h',y:e.map(x=>LBL[x.feature]),x:e.map(x=>x.contribution),marker:{color:e.map(x=>x.contribution>0?'#c62828':'#2e7d32')}}],{margin:{t:5,l:150},height:300},{displayModeBar:false});
+ const S=[['comp_progress','Compensation progress %',0,100,1],['stage_days','Stage duration (days)',0,400,5],['pending_approvals','Pending approvals',0,10,1],['legal_disputes','Legal disputes',0,10,1],['rr_progress','R&R progress %',0,100,1]];
+ $('sl').innerHTML=S.map(s=>`<div>${s[1]}: <b id="v_${s[0]}">${Math.round(f[s[0]])}</b><input type="range" id="s_${s[0]}" min="${s[2]}" max="${s[3]}" step="${s[4]}" value="${Math.round(f[s[0]])}" oninput="$('v_${s[0]}').textContent=this.value"></div>`).join('');
+ const R=[];if(f.comp_progress<50)R.push('Compensation progress low → review pending compensation cases.');if(f.pending_approvals>=3)R.push('Pending approvals high → escalate administrative coordination.');if(f.doc_gap>.3)R.push('Documentation incomplete → review and resolve missing records.');if(f.legal_disputes>=2)R.push('Legal disputes present → prioritise unresolved cases for appropriate legal/administrative review.');if(f.rr_progress<40)R.push('R&R progress low → review pending rehabilitation and resettlement activities.');
+ $('rec').innerHTML=(R.length?R:['No rule-based flags triggered.']).map(x=>`<li>${x}</li>`).join('')}
+async function sim(){const b={};['comp_progress','stage_days','pending_approvals','legal_disputes','rr_progress'].forEach(k=>b[k]=+$('s_'+k).value);
+ const r=await api(`/api/projects/${cur.id}/simulate`,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(b)});
+ $('sr').innerHTML=`Current risk <b>${pct(r.current)}</b> → Scenario risk <b>${pct(r.scenario)}</b><br>Model-predicted change: <b>${r.change_pp>0?'+':''}${r.change_pp} pp</b><div class="mut">${r.note}</div>`}
+</script></body></html>
