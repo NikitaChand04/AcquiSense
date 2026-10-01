@@ -1,11 +1,11 @@
-# SAFEYRA
+# SAFYRA
 ### Predictive Analytics System for Early Detection of Land Acquisition Delays — SIH 2026, SIH26017
 **Predict → Explain → Detect Bottleneck → Simulate → Monitor**
 
 > **DEMO MODE.** The prototype uses fully synthetic data (generated in `ml/pipeline.py`). The official SIH26017 dataset was not available, so its schema was not inspected. Demonstration metrics must not be interpreted as real-world performance.
 
 ## Run (Python 3.10+; no Node, Docker or PostgreSQL needed)
-1. Extract `SAFEYRA-SIH26017.zip`, then `cd SAFEYRA-SIH26017`
+1. Extract `SAFYRA-SIH26017.zip`, then `cd SAFYRA-SIH26017`
 2. `python -m venv .venv` → activate (`.venv\Scripts\activate` on Windows, `source .venv/bin/activate` elsewhere)
 3. `pip install -r requirements.txt`
 4. `uvicorn backend.main:app --reload` (run from the project root)
@@ -24,4 +24,4 @@ Synthetic data only; single-process in-memory demo; role selection is UI-only (n
 ## Sustainability model
 Institutional licensing, integration, support, custom analytics and training — never selling land or citizen data.
 ## Team
-SAFEYRA (Team ID 149455)
+SAFYRA (Team ID 149455)
